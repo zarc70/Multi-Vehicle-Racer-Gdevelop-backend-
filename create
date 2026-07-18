@@ -1,0 +1,7 @@
+echo "# Multi-Vehicle-Racer-Gdevelop-backend-" >> README.md
+git init
+git add README.md
+git commit -m "first commit"
+git branch -M main
+git remote add origin https://github.com/zarc70/Multi-Vehicle-Racer-Gdevelop-backend-.git
+git push -u origin main

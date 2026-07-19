@@ -82,21 +82,27 @@
   </style>
 </head>
 <body>
-  <canvas id="game" aria-label="Multi-Vehicle Racer"></canvas>
+  <canvas id="game" tabindex="0" aria-label="Multi-Vehicle Racer"></canvas>
 
 
-  <script src="game.js"></script>
+  <script src="game.js?v=054"></script>
   <script>
+    // Disable old offline caches while the game is under active development.
     if ("serviceWorker" in navigator) {
-      window.addEventListener("load", () => {
-        navigator.serviceWorker.register("./service-worker.js").catch(() => {});
-      });
+      navigator.serviceWorker.getRegistrations()
+        .then(registrations => registrations.forEach(r => r.unregister()))
+        .catch(() => {});
+      if ("caches" in window) {
+        caches.keys().then(keys => keys.forEach(key => caches.delete(key))).catch(() => {});
+      }
     }
 
     document.addEventListener("gesturestart", e => e.preventDefault(), { passive: false });
     document.addEventListener("gesturechange", e => e.preventDefault(), { passive: false });
     document.addEventListener("gestureend", e => e.preventDefault(), { passive: false });
     document.addEventListener("contextmenu", e => e.preventDefault());
+    window.addEventListener("load", () => document.getElementById("game")?.focus());
+    document.addEventListener("pointerdown", () => document.getElementById("game")?.focus());
 
     const requestGameFullscreen = async () => {
       const element = document.documentElement;

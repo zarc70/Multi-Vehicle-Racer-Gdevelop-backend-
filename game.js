@@ -18,11 +18,18 @@ for (let i = 1; i <= 12; i++) {
 }
 
 function viewportSize() {
-  const vv = window.visualViewport;
-  return {
-    width: Math.max(1, Math.round(vv ? vv.width : window.innerWidth)),
-    height: Math.max(1, Math.round(vv ? vv.height : window.innerHeight))
-  };
+  const de = document.documentElement;
+  const width = Math.max(
+    1,
+    Math.round(window.innerWidth || 0),
+    Math.round(de.clientWidth || 0)
+  );
+  const height = Math.max(
+    1,
+    Math.round(window.innerHeight || 0),
+    Math.round(de.clientHeight || 0)
+  );
+  return { width, height };
 }
 
 function resize() {
@@ -35,12 +42,23 @@ function resize() {
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 }
 
-addEventListener("resize", resize);
-window.visualViewport?.addEventListener("resize", resize);
-window.visualViewport?.addEventListener("scroll", resize);
+function scheduleResize() {
+  resize();
+  setTimeout(resize, 80);
+  setTimeout(resize, 250);
+  setTimeout(resize, 600);
+}
+
+addEventListener("resize", scheduleResize);
+addEventListener("orientationchange", scheduleResize);
+window.visualViewport?.addEventListener("resize", scheduleResize);
 resize();
 
 const keys = {};
+const keyboardInput = {
+  up:false, down:false, left:false, right:false,
+  primary:false, secondary:false
+};
 const keyLocks = {};
 const touchInput = { throttle:0, steer:0, action:0, secondary:0, start:0, select:0 };
 const activePointers = new Map();
@@ -167,70 +185,147 @@ function updateTouchInput() {
 }
 function pointerPosition(e) {
   const rect = canvas.getBoundingClientRect();
-  return { x:e.clientX-rect.left, y:e.clientY-rect.top };
+  return {
+    x: (e.clientX - rect.left) * (viewportSize().width / Math.max(1, rect.width)),
+    y: (e.clientY - rect.top) * (viewportSize().height / Math.max(1, rect.height))
+  };
 }
 
+function touchPosition(touch) {
+  const rect = canvas.getBoundingClientRect();
+  return {
+    x: (touch.clientX - rect.left) * (viewportSize().width / Math.max(1, rect.width)),
+    y: (touch.clientY - rect.top) * (viewportSize().height / Math.max(1, rect.height))
+  };
+}
+
+function syncTouches(e) {
+  e.preventDefault();
+  activePointers.clear();
+  for (const touch of e.touches) {
+    activePointers.set(touch.identifier, touchPosition(touch));
+  }
+  updateTouchInput();
+}
+
+canvas.addEventListener("touchstart", syncTouches, {passive:false});
+canvas.addEventListener("touchmove", syncTouches, {passive:false});
+canvas.addEventListener("touchend", syncTouches, {passive:false});
+canvas.addEventListener("touchcancel", syncTouches, {passive:false});
+
+// Pointer events remain for mouse/stylus testing, but touch uses the handlers above.
 canvas.addEventListener("pointerdown", e => {
+  if (e.pointerType === "touch") return;
   e.preventDefault();
   if (state !== "game") return;
-  canvas.setPointerCapture?.(e.pointerId);
   activePointers.set(e.pointerId, pointerPosition(e));
   updateTouchInput();
 });
 canvas.addEventListener("pointermove", e => {
-  if (!activePointers.has(e.pointerId)) return;
+  if (e.pointerType === "touch" || !activePointers.has(e.pointerId)) return;
   e.preventDefault();
   activePointers.set(e.pointerId, pointerPosition(e));
   updateTouchInput();
 });
 function releasePointer(e) {
+  if (e.pointerType === "touch") return;
   activePointers.delete(e.pointerId);
   updateTouchInput();
 }
 canvas.addEventListener("pointerup", releasePointer);
 canvas.addEventListener("pointercancel", releasePointer);
-canvas.addEventListener("pointerleave", e => {
-  if (e.pointerType === "touch") releasePointer(e);
-});
 
-function syncTouchFallback(e) {
-  if (window.PointerEvent) return;
-  e.preventDefault();
-  activePointers.clear();
-  const rect = canvas.getBoundingClientRect();
-  for (const touch of e.touches) {
-    activePointers.set(touch.identifier, {
-      x: touch.clientX - rect.left,
-      y: touch.clientY - rect.top
-    });
+function setKeyboardKey(code, down) {
+  switch (code) {
+    case "ArrowUp":
+    case "KeyW":
+      keyboardInput.up = down;
+      break;
+    case "ArrowDown":
+    case "KeyS":
+      keyboardInput.down = down;
+      break;
+    case "ArrowLeft":
+    case "KeyA":
+      keyboardInput.left = down;
+      break;
+    case "ArrowRight":
+    case "KeyD":
+      keyboardInput.right = down;
+      break;
+    case "Space":
+      keyboardInput.primary = down;
+      break;
+    case "ShiftLeft":
+    case "ShiftRight":
+    case "ControlLeft":
+    case "ControlRight":
+      keyboardInput.secondary = down;
+      break;
   }
-  updateTouchInput();
 }
 
-canvas.addEventListener("touchstart", syncTouchFallback, { passive:false });
-canvas.addEventListener("touchmove", syncTouchFallback, { passive:false });
-canvas.addEventListener("touchend", syncTouchFallback, { passive:false });
-canvas.addEventListener("touchcancel", syncTouchFallback, { passive:false });
+function clearKeyboardInput() {
+  keyboardInput.up = false;
+  keyboardInput.down = false;
+  keyboardInput.left = false;
+  keyboardInput.right = false;
+  keyboardInput.primary = false;
+  keyboardInput.secondary = false;
+  for (const key of Object.keys(keys)) keys[key] = false;
+}
+
 addEventListener("keydown", e => {
-  const k = e.key.toLowerCase();
-  keys[k] = true;
+  setKeyboardKey(e.code, true);
+  keys[e.key.toLowerCase()] = true;
+
+  if ([
+    "ArrowUp","ArrowDown","ArrowLeft","ArrowRight",
+    "Space","KeyW","KeyA","KeyS","KeyD"
+  ].includes(e.code)) {
+    e.preventDefault();
+  }
+
+  if (e.repeat && state === "menu") return;
 
   if (state === "menu") {
-    if ("123456789".includes(k)) {
-      const idx = parseInt(k, 10) - 1;
-      if (idx < menuOptions.length) startGame(menuOptions[idx]);
+    if (e.code.startsWith("Digit")) {
+      const idx = Number(e.code.slice(5)) - 1;
+      if (idx >= 0 && idx < menuOptions.length) startGame(menuOptions[idx]);
     }
-    if (k === "enter") startGame(menuOptions[menuIndex]);
-    if (k === "arrowright" || k === "d") menuIndex = Math.min(menuOptions.length - 1, menuIndex + 1);
-    if (k === "arrowleft" || k === "a") menuIndex = Math.max(0, menuIndex - 1);
-    if (k === "arrowdown" || k === "s") menuIndex = Math.min(menuOptions.length - 1, menuIndex + 4);
-    if (k === "arrowup" || k === "w") menuIndex = Math.max(0, menuIndex - 4);
+
+    if (e.code === "Enter" || e.code === "Space") {
+      startGame(menuOptions[menuIndex]);
+      e.preventDefault();
+      return;
+    }
+
+    if (e.code === "ArrowRight" || e.code === "KeyD")
+      menuIndex = Math.min(menuOptions.length - 1, menuIndex + 1);
+    if (e.code === "ArrowLeft" || e.code === "KeyA")
+      menuIndex = Math.max(0, menuIndex - 1);
+    if (e.code === "ArrowDown" || e.code === "KeyS")
+      menuIndex = Math.min(menuOptions.length - 1, menuIndex + 4);
+    if (e.code === "ArrowUp" || e.code === "KeyW")
+      menuIndex = Math.max(0, menuIndex - 4);
   } else {
-    if (k === "r") resetCurrentMode();
-    if (k === "escape") backToMenu();
+    if (e.code === "KeyR") resetCurrentMode();
+    if (e.code === "Escape" || e.code === "Tab") {
+      e.preventDefault();
+      backToMenu();
+    }
   }
+}, { passive:false });
+
+addEventListener("keyup", e => {
+  setKeyboardKey(e.code, false);
+  keys[e.key.toLowerCase()] = false;
 });
-addEventListener("keyup", e => keys[e.key.toLowerCase()] = false);
+
+addEventListener("blur", clearKeyboardInput);
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) clearKeyboardInput();
+});
 
 canvas.addEventListener("click", e => {
   if (state !== "menu") return;
@@ -343,37 +438,41 @@ function applyWorldBounds() {
   }
 }
 function justPressedSpace() {
-  const down = !!keys[" "];
+  const down = keyboardInput.primary || touchInput.action > 0;
   const jp = down && !keyLocks.space;
   keyLocks.space = down;
   return jp;
 }
 function input() {
-  let th = 0, st = 0, power = keys[" "] ? 1 : 0;
-  if (keys["w"] || keys["arrowup"]) th++;
-  if (keys["s"] || keys["arrowdown"]) th--;
-  if (keys["a"] || keys["arrowleft"]) st--;
-  if (keys["d"] || keys["arrowright"]) st++;
+  let th = 0;
+  let st = 0;
+
+  if (keyboardInput.up) th += 1;
+  if (keyboardInput.down) th -= 1;
+  if (keyboardInput.left) st -= 1;
+  if (keyboardInput.right) st += 1;
+
   th += touchInput.throttle;
   st += touchInput.steer;
-  power = Math.max(power, touchInput.action);
-  const secondary = (keys["shift"] || keys["control"] || touchInput.secondary) ? 1 : 0;
-  const gp = navigator.getGamepads?.()[0];
-  if (gp) {
-    st += Math.abs(gp.axes[0]) > 0.12 ? gp.axes[0] : 0;
-    th += Math.max(0, -gp.axes[1]) + (gp.buttons[7]?.value || 0);
-    th -= Math.max(0, gp.axes[1]) + (gp.buttons[6]?.value || 0);
-    power = Math.max(power, gp.buttons[0]?.value || 0);
-  }
-  return { th: Math.max(-1, Math.min(1, th)), st: Math.max(-1, Math.min(1, st)), power };
+
+  return {
+    th: Math.max(-1, Math.min(1, th)),
+    st: Math.max(-1, Math.min(1, st)),
+    power: keyboardInput.primary || touchInput.action ? 1 : 0,
+    secondary: keyboardInput.secondary || touchInput.secondary ? 1 : 0
+  };
 }
 
 function startGame(id) {
+  clearKeyboardInput();
+  activePointers.clear();
+  updateTouchInput();
   state = "game";
   vehicle = vehicleDefs[id];
   resetCurrentMode();
 }
 function backToMenu() {
+  clearKeyboardInput();
   state = "menu";
   activePointers.clear();
   updateTouchInput();
@@ -1397,25 +1496,33 @@ function actionLabel() {
   return "ACTION";
 }
 
-function drawHUD(vw, vh) {
-  panel(14,14,240,208);
-  text(vehicle.name.toUpperCase(), 28, 38, 16, "left", vehicle.color);
-  text("LAP", 28, 66, 12, "left", "#9a9"); text(`${Math.min(lap,3)} / 3`, 28, 96, 28);
-  text("TIME", 28, 124, 12, "left", "#9a9"); text(((performance.now()-start)/1000).toFixed(1), 28, 149, 20);
-  text(vehicle.targetName, 28, 174, 12, "left", "#9a9");
-  if (vehicle.objective === "laps") text("3 LAPS", 28, 201, 22, "left", vehicle.color);
-  else text(`${cleaned} / ${objects.length}`, 28, 201, 22, "left", vehicle.color);
+function drawHUD(t) {
+  const x = t.ox, y = t.oy;
+  const w = WORLD.w * t.scale;
+  const h = WORLD.h * t.scale;
+  const s = Math.max(0.58, Math.min(1, t.scale * 1.55));
 
-  panel(vw-260,14,246,176);
-  text("RACE INFO", vw-137, 42, 16, "center");
-  text("SPEED", vw-237, 74, 12, "left", "#aaa"); text(`${Math.round(Math.abs(car.v))} KM/H`, vw-28, 76, 17, "right");
-  text("ABILITY", vw-237, 108, 12, "left", "#aaa"); text(abilityText(), vw-28, 110, 14, "right", vehicle.color);
-  text("SPACE / A", vw-237, 142, 12, "left", "#aaa"); text(actionLabel(), vw-28, 144, 14, "right", "#fff");
+  const leftW = 230*s;
+  const rightW = 242*s;
+  const top = y + 12*s;
 
-  panel(vw/2-310, vh-82, 620, 58);
-  text(goalText(), vw/2, vh-46, 19, "center", "#fff");
+  panel(x+12*s, top, leftW, 158*s);
+  text(vehicle.name.toUpperCase(), x+25*s, top+24*s, 15*s, "left", vehicle.color);
+  text("LAP", x+25*s, top+49*s, 11*s, "left", "#9a9");
+  text(`${Math.min(lap,3)} / 3`, x+25*s, top+75*s, 24*s);
+  text(vehicle.targetName, x+25*s, top+100*s, 11*s, "left", "#9a9");
+  const progress = vehicle.objective === "laps" ? "3 LAPS" : `${cleaned} / ${objects.length}`;
+  text(progress, x+25*s, top+131*s, 20*s, "left", vehicle.color);
+
+  panel(x+w-rightW-12*s, top, rightW, 132*s);
+  text("RACE INFO", x+w-rightW/2-12*s, top+24*s, 15*s, "center");
+  text("SPEED", x+w-rightW+4*s, top+54*s, 11*s, "left", "#aaa");
+  text(`${Math.round(Math.abs(car.v))} KM/H`, x+w-26*s, top+55*s, 15*s, "right");
+  text("A", x+w-rightW+4*s, top+84*s, 11*s, "left", "#aaa");
+  text(actionLabel(), x+w-26*s, top+85*s, 13*s, "right", "#fff");
+  text("B", x+w-rightW+4*s, top+112*s, 11*s, "left", "#aaa");
+  text(secondaryAbilityText(), x+w-26*s, top+113*s, 12*s, "right", vehicle.color);
 }
-
 
 function drawTouchButton(box, label, circle=false, fontSize=null) {
   ctx.save();
@@ -1580,7 +1687,7 @@ function drawMenu() {
   const scale = Math.min(vw/WORLD.w, vh/WORLD.h), ox = (vw-WORLD.w*scale)/2, oy = (vh-WORLD.h*scale)/2;
   ctx.globalAlpha = 0.22; ctx.drawImage(track, ox, oy, WORLD.w*scale, WORLD.h*scale); ctx.globalAlpha = 1;
   text("MULTI-VEHICLE RACER", vw/2, 74, 38, "center", "#8dff34");
-  text("Benjy Delta-Style Build v0.5.2", vw/2, 106, 17, "center", "#d8ffd1", "400");
+  text("Benjy Input Repair Build v0.5.4", vw/2, 106, 17, "center", "#d8ffd1", "400");
   text("Pick a vehicle", vw/2, 125, 22, "center", "#fff");
 
   const ui = getMenuLayout();
@@ -1605,6 +1712,9 @@ function drawMenu() {
 
 function draw() {
   const { width: vw, height: vh } = viewportSize();
+  const dpr = Math.min(2, window.devicePixelRatio || 1);
+  if (canvas.width !== Math.round(vw*dpr) || canvas.height !== Math.round(vh*dpr)) resize();
+  ctx.setTransform(dpr,0,0,dpr,0,0);
   if (state === "menu") { drawMenu(); return; }
 
   const layout = screenLayout();
@@ -1625,7 +1735,7 @@ function draw() {
 
   drawObjects(t);
   drawCurrentVehicle(t);
-  drawHUD(vw,vh);
+  drawHUD(t);
   drawTouchControls();
   if (finished) drawFinish(vw,vh);
 }

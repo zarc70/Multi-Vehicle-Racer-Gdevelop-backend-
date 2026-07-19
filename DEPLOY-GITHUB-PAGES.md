@@ -39,3 +39,13 @@ The first deployment may take a few minutes.
 ## Update later
 
 Upload the contents of each newer GitHub Pages-ready release over the existing repository files. Keep Pages set to `main` and `/ (root)`. The public URL stays the same.
+
+
+## Important when replacing v0.5.2
+
+Delete the old `service-worker.js` file from the repository if GitHub leaves it behind. Then reload the game once in Safari. This release automatically unregisters and clears the older cached version.
+
+
+## v0.5.4 replacement note
+
+Upload every file from this package over v0.5.3. The `game.js?v=054` query in `index.html` forces Safari and desktop browsers to request the repaired input code rather than reusing the older script.

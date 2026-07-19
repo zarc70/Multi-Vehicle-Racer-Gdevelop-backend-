@@ -39,3 +39,23 @@ For each future release, replace the web files in the repository root with the f
 - Keyboard controls retained
 - A = Space
 - B = Shift or Control
+
+
+## v0.5.3 — iPhone rotation and touch repair
+- Fixed nonresponsive iPhone touch controls
+- Fixed blank canvas after rotating into landscape
+- Removed stale service-worker caching during development
+- Added cache-busted JavaScript loading
+- Repositioned HUD entirely inside the fixed game screen
+- Added repeated resize checks after orientation changes
+
+
+## v0.5.4 — keyboard input repair
+- Rebuilt keyboard input as an independent system
+- Touch input can no longer clear or overwrite keyboard state
+- Arrow keys and WASD restored
+- Space restored as A / primary ability
+- Shift or Control restored as B / secondary ability
+- Enter or Space starts a selected vehicle from the menu
+- Escape or Tab returns to the vehicle menu
+- Removed gamepad polling from the input path for now
